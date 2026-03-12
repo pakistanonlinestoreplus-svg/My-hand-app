@@ -2,92 +2,108 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Pro Max Fix</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Particles - Laptop Edition</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; touch-action: none; }
-        /* Camera Box - Lines sirf iske upar ayengi */
+        body { margin: 0; overflow: hidden; background: #000; cursor: none; }
+        
+        /* Camera UI for Laptop */
         #video-wrap {
-            position: absolute; bottom: 15px; left: 15px;
-            width: 160px; height: 120px; border: 2px solid #0ff;
-            border-radius: 10px; overflow: hidden; transform: scaleX(-1);
-            z-index: 20; background: #111;
+            position: absolute; bottom: 20px; left: 20px;
+            width: 240px; height: 180px; border: 2px solid #00ffff;
+            border-radius: 12px; overflow: hidden; transform: scaleX(-1);
+            background: #111; box-shadow: 0 0 20px rgba(0,255,255,0.3);
+            z-index: 100;
         }
-        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.6; }
+        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.5; }
         canvas#hand_canvas {
             position: absolute; top: 0; left: 0;
-            width: 100%; height: 100%; z-index: 21;
+            width: 100%; height: 100%; z-index: 101;
         }
-        #ui {
+
+        #ui-overlay {
             position: absolute; top: 20px; width: 100%; text-align: center;
-            color: #0ff; font-family: sans-serif; pointer-events: none;
-            text-shadow: 0 0 10px #0ff; font-weight: bold;
+            color: #00ffff; font-family: 'Orbitron', sans-serif;
+            letter-spacing: 3px; text-shadow: 0 0 10px #00ffff;
+            pointer-events: none; z-index: 50;
         }
     </style>
 </head>
 <body>
 
-<div id="ui">HYPER SPEED & ZOOM MODE 🚀</div>
+<div id="ui-overlay">
+    <h1 style="margin:0; font-size: 24px;">LAPTOP NEURAL FLOW</h1>
+    <p style="font-size: 12px; opacity: 0.8;">Use hand to control the swarm. Move closer to zoom.</p>
+</div>
 
 <div id="video-wrap">
     <video id="input_video" playsinline></video>
-    <canvas id="hand_canvas"></canvas> </div>
+    <canvas id="hand_canvas"></canvas>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/** 1. THREE.JS SETUP **/
+/** 1. THREE.JS ENGINE (Laptop High Quality) **/
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
-const particleCount = 4000;
+// Laptop ke liye zyada particles (10,000)
+const particleCount = 10000;
 const positions = new Float32Array(particleCount * 3);
 const velocities = new Float32Array(particleCount * 3);
 const geometry = new THREE.BufferGeometry();
 
 for (let i = 0; i < particleCount * 3; i++) {
-    positions[i] = (Math.random() - 0.5) * 20;
+    positions[i] = (Math.random() - 0.5) * 30;
     velocities[i] = 0;
 }
 
 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
 const material = new THREE.PointsMaterial({ 
-    color: 0x00ffff, size: 0.1, // Size thora barha diya
-    transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending 
+    color: 0x00ffff, 
+    size: 0.08, 
+    transparent: true, 
+    opacity: 0.8, 
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
 });
+
 const particleSystem = new THREE.Points(geometry, material);
 scene.add(particleSystem);
 
-camera.position.z = 10;
+camera.position.z = 12;
 
-/** 2. TRACKING & CAMERA BOX LINES **/
+/** 2. HAND TRACKING (Laptop Wide Mode) **/
 const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('hand_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 
-let rawAttractor = new THREE.Vector3(0, 0, 0);
-let active = false;
+let targetPos = new THREE.Vector3(0, 0, 0);
+let currentPos = new THREE.Vector3(0, 0, 0);
+let isActive = false;
 
 const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 
 hands.onResults((results) => {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        active = true;
+        isActive = true;
         const landmarks = results.multiHandLandmarks[0];
 
-        // Drawing Lines ONLY in Camera Box
-        canvasCtx.strokeStyle = "#ff00ff";
-        canvasCtx.lineWidth = 3;
+        // Draw Skeleton in the small box
+        canvasCtx.strokeStyle = "#00ffff";
+        canvasCtx.lineWidth = 2;
         const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-        
         connections.forEach(([i, j]) => {
             canvasCtx.beginPath();
             canvasCtx.moveTo(landmarks[i].x * canvasElement.width, landmarks[i].y * canvasElement.height);
@@ -95,50 +111,42 @@ hands.onResults((results) => {
             canvasCtx.stroke();
         });
 
-        // ZOOM FIX: hand.z ko scale kiya hai taake kareeb lane par particles phail jayein
+        // Mapping for Laptop Wide Screen
         const palm = landmarks[9];
-        rawAttractor.x = (palm.x - 0.5) * -25; // Speed increase
-        rawAttractor.y = (palm.y - 0.5) * -20;
-        rawAttractor.z = (0.5 - palm.z) * 35; // Depth sensitivity barha di
+        targetPos.x = (palm.x - 0.5) * -40; // Horizontal range barha di
+        targetPos.y = (palm.y - 0.5) * -25; // Vertical range barha di
+        targetPos.z = (0.5 - palm.z) * 45;  // Zoom effect sensitive kar diya
     } else {
-        active = false;
+        isActive = false;
     }
 });
 
-new Camera(videoElement, {
+const cameraUtils = new Camera(videoElement, {
     onFrame: async () => {
-        canvasElement.width = 160; canvasElement.height = 120; // Sync canvas size
+        canvasElement.width = 240; canvasElement.height = 180;
         await hands.send({image: videoElement});
     }
-}).start();
+});
+cameraUtils.start();
 
-/** 3. ANIMATION LOOP (HYPER SPEED) **/
+/** 3. ANIMATION LOOP (Butter Smooth) **/
 function animate() {
     requestAnimationFrame(animate);
 
-    if (active) {
-        const pos = geometry.attributes.position.array;
-        for (let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
-            
-            // Movement speed ko 0.005 kar diya (pehlay 0.0018 tha)
-            velocities[i3] += (rawAttractor.x - pos[i3]) * 0.005;
-            velocities[i3+1] += (rawAttractor.y - pos[i3+1]) * 0.005;
-            velocities[i3+2] += (rawAttractor.z - pos[i3+2]) * 0.005;
+    // Smoothing haath ki movement ke liye
+    currentPos.lerp(targetPos, 0.1);
 
-            pos[i3] += velocities[i3];
-            pos[i3+1] += velocities[i3+1];
-            pos[i3+2] += velocities[i3+2];
-
-            velocities[i3] *= 0.85; // Sharp stop logic
-            velocities[i3+1] *= 0.85;
-            velocities[i3+2] *= 0.85;
+    const pos = geometry.attributes.position.array;
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        
+        if (isActive) {
+            // Physics forces for Laptop
+            velocities[i3] += (currentPos.x - pos[i3]) * 0.003;
+            velocities[i3+1] += (currentPos.y - pos[i3+1]) * 0.003;
+            velocities[i3+2] += (currentPos.z - pos[i3+2]) * 0.003;
+        } else {
+            // Idle Floating
+            velocities[i3] += Math.sin(Date.now() * 0.001 + i) * 0.0005;
+            velocities[i3+1] += Math.cos(Date.now() * 0.001 + i) * 0.0005;
         }
-        geometry.attributes.position.needsUpdate = true;
-    }
-    renderer.render(scene, camera);
-}
-animate();
-</script>
-</body>
-</html>
