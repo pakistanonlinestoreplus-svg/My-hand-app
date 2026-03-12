@@ -2,30 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Jarvis Block Engine - Fixed</title>
+    <title>Jarvis Pro Controller - Full Functions</title>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Courier New', monospace; }
+        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #video-wrap {
-            position: absolute; top: 15px; left: 15px;
-            width: 200px; height: 150px; border: 2px solid #0ff;
-            border-radius: 10px; overflow: hidden; transform: scaleX(-1);
-            z-index: 100;
+            position: absolute; bottom: 20px; right: 20px;
+            width: 220px; height: 165px; border: 1px solid #0ff;
+            border-radius: 12px; overflow: hidden; transform: scaleX(-1);
+            z-index: 100; box-shadow: 0 0 15px rgba(0,255,255,0.5);
         }
         video { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; }
-        #ui {
-            position: absolute; top: 20px; right: 20px; text-align: right;
-            pointer-events: none; text-shadow: 0 0 10px #0ff;
+        #hud {
+            position: absolute; top: 20px; left: 20px; pointer-events: none;
+            text-shadow: 0 0 10px #0ff;
         }
-        /* Notification style */
-        #msg { color: #f0f; font-weight: bold; font-size: 20px; }
+        .data-stream { font-size: 12px; color: #0f0; }
     </style>
 </head>
 <body>
 
-<div id="ui">
-    <h1>JARVIS BLOCK SYSTEM</h1>
-    <p id="msg">SYSTEM READY</p>
-    <p>ACTION: PINCH FINGERS TO SPAWN</p>
+<div id="hud">
+    <h1 style="margin:0;">JARVIS GESTURE v3.0</h1>
+    <div class="data-stream" id="stats">STATUS: CONNECTING...</div>
+    <div id="gesture-hint" style="color:#f0f; margin-top:10px;">ACTION: PINCH TO CREATE | GRAB TO SCALE</div>
 </div>
 
 <div id="video-wrap">
@@ -37,87 +36,93 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/** 1. THREE.JS SCENE **/
+/** 1. THREE.JS ENGINE SETUP **/
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Jarvis Grid
-const grid = new THREE.GridHelper(100, 40, 0x00ffff, 0x002222);
+// Environment
+const grid = new THREE.GridHelper(100, 40, 0x004444, 0x001111);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
 
 const handGroup = new THREE.Group();
 scene.add(handGroup);
 
-// Blocks Storage
+camera.position.z = 25;
+
+// Block Management
 const blocks = [];
-const boxGeo = new THREE.BoxBufferGeometry(2.5, 2.5, 2.5);
-const boxMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.7 });
+const boxGeo = new THREE.BoxGeometry(3, 3, 3);
+const boxMat = new THREE.MeshStandardMaterial({ 
+    color: 0x00ffff, wireframe: true, emissive: 0x00ffff, emissiveIntensity: 0.5 
+});
+const light = new THREE.PointLight(0x00ffff, 1, 100);
+scene.add(light);
 
-camera.position.z = 20;
-
-/** 2. HAND TRACKING & ENHANCED GESTURES **/
+/** 2. HAND TRACKING & VIDEO LOGIC **/
 const videoElement = document.getElementById('input_video');
-const msgEl = document.getElementById('msg');
-let lastActionTime = 0;
+const statsEl = document.getElementById('stats');
+let lastPinchTime = 0;
 
 function onResults(results) {
     handGroup.clear();
-    
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        results.multiHandLandmarks.forEach((landmarks) => {
-            // Coordinate transformation (optimized for laptop screen)
-            const pts = landmarks.map(l => new THREE.Vector3((l.x - 0.5) * -50, (l.y - 0.5) * -35, (0.5 - l.z) * 20));
+    let handsCount = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+    statsEl.innerText = `STATUS: ONLINE | HANDS: ${handsCount}`;
 
-            // Skeleton Drawing
+    if (results.multiHandLandmarks) {
+        results.multiHandLandmarks.forEach((landmarks, hIndex) => {
+            const pts = landmarks.map(l => new THREE.Vector3((l.x - 0.5) * -60, (l.y - 0.5) * -45, (0.5 - l.z) * 20));
+
+            // Draw Skeleton
             const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ffff });
             connections.forEach(([i, j]) => {
                 const geo = new THREE.BufferGeometry().setFromPoints([pts[i], pts[j]]);
-                handGroup.add(new THREE.Line(geo, lineMat));
+                const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0x00ffff, opacity: 0.5, transparent: true}));
+                handGroup.add(line);
             });
 
-            // 1. PINCH LOGIC (Finger 4 & 8)
-            const thumbTip = pts[4];
-            const indexTip = pts[8];
-            const pinchDist = thumbTip.distanceTo(indexTip);
+            // GESTURES
+            const thumb = pts[4], index = pts[8], middle = pts[12], palm = pts[9];
+            const pinchDist = thumb.distanceTo(index);
+            const isGrab = middle.y < pts[9].y && index.y < pts[5].y;
 
-            // Sensitivity increased (4.0 is very easy to trigger)
-            if (pinchDist < 4.0 && (Date.now() - lastActionTime > 1500)) {
-                spawnBlock(indexTip);
-                lastActionTime = Date.now();
-                msgEl.innerText = "BLOCK GENERATED!";
-                setTimeout(() => msgEl.innerText = "READY", 1000);
+            // 1. PINCH TO CREATE
+            if (pinchDist < 3.5 && (Date.now() - lastPinchTime > 2000)) {
+                spawnBlock(index);
+                lastPinchTime = Date.now();
             }
 
-            // 2. GRAB & MOVE LOGIC (Muthi band karna)
-            // Check if middle finger tip is lower than palm center
-            const isGrab = pts[12].y < pts[9].y && pts[8].y < pts[5].y;
-            
+            // 2. GRAB TO MANIPULATE
             if (isGrab && blocks.length > 0) {
-                msgEl.innerText = "GRABBING BLOCK...";
-                // Move the most recent block to follow the palm center
-                blocks[blocks.length - 1].position.lerp(pts[9], 0.3);
-                blocks[blocks.length - 1].material.color.set(0xff00ff); // Magenta color when grabbed
+                let activeBlock = blocks[blocks.length - 1];
+                activeBlock.position.lerp(palm, 0.2); // Follow hand
+                
+                // Rotation based on hand tilt
+                activeBlock.rotation.y += 0.05; 
+                activeBlock.material.color.set(0xff00ff); // Highlight
+                
+                // Dynamic Scaling (Distance from camera)
+                let scaleVal = 1 + (pts[0].z * -0.1); 
+                activeBlock.scale.set(scaleVal, scaleVal, scaleVal);
             } else if (blocks.length > 0) {
-                blocks[blocks.length - 1].material.color.set(0x00ffff); // Back to Cyan
+                blocks[blocks.length - 1].material.color.set(0x00ffff);
             }
         });
     }
 }
 
-function spawnBlock(position) {
-    const mesh = new THREE.Mesh(boxGeo, boxMat.clone());
-    mesh.position.copy(position);
-    scene.add(mesh);
-    blocks.push(mesh);
+function spawnBlock(pos) {
+    const b = new THREE.Mesh(boxGeo, boxMat.clone());
+    b.position.copy(pos);
+    scene.add(b);
+    blocks.push(b);
 }
 
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 hands.onResults(onResults);
 
 new Camera(videoElement, {
@@ -128,11 +133,13 @@ new Camera(videoElement, {
 /** 3. ANIMATION **/
 function animate() {
     requestAnimationFrame(animate);
-    // Blocks ko rotate karein taake Jarvis feel aaye
+    
+    // Idle rotation for all blocks
     blocks.forEach(b => {
-        b.rotation.x += 0.01;
-        b.rotation.y += 0.01;
+        b.rotation.x += 0.005;
+        b.rotation.z += 0.005;
     });
+
     renderer.render(scene, camera);
 }
 animate();
