@@ -1,4 +1,4 @@
-# My-hand-app
+# index.html
 // Simplified logic for an Android Particle Controller
 handLandmarkerResult.landmarks().firstOrNull()?.let { landmarks ->
     val middleFingerBase = landmarks[9] // Landmark 9 is the palm center
