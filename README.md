@@ -2,158 +2,134 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Jarvis OS - Precise Clone</title>
+    <title>Jarvis Voxel Builder</title>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Segoe UI', sans-serif; }
-        
-        /* Camera Layout as seen in Video */
+        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Courier New', monospace; }
         #video-wrap {
-            position: absolute; top: 20px; left: 20px;
-            width: 240px; height: 180px; border: 1px solid #0ff;
-            border-radius: 8px; overflow: hidden; transform: scaleX(-1);
-            z-index: 100; box-shadow: 0 0 20px rgba(0,255,255,0.4);
+            position: absolute; top: 10px; left: 10px;
+            width: 150px; height: 110px; border: 1px solid #0ff;
+            border-radius: 5px; overflow: hidden; transform: scaleX(-1);
+            z-index: 100; opacity: 0.5;
         }
         video { width: 100%; height: 100%; object-fit: cover; }
-        canvas#output_canvas {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            z-index: 50; pointer-events: none;
-        }
-        #ui {
-            position: absolute; top: 25px; right: 25px; text-align: right;
-            text-shadow: 0 0 10px #0ff; z-index: 110;
+        #hud {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            pointer-events: none; text-shadow: 0 0 10px #0ff;
         }
     </style>
 </head>
 <body>
 
-<div id="ui">
-    <h1 style="margin:0; font-size: 24px;">SYSTEM ANALYSIS</h1>
-    <p id="status" style="color:#0f0;">SENSORS: ACTIVE</p>
-    <p id="gesture-info">WAITING FOR INPUT...</p>
+<div id="hud">
+    <h2>VOXEL BUILDER ACTIVE</h2>
+    <p>PINCH TO PLACE BLOCK 🧊</p>
 </div>
 
 <div id="video-wrap">
     <video id="input_video" autoplay playsinline></video>
 </div>
 
-<canvas id="output_canvas"></canvas>
-
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
-/** 1. CLONE SETUP **/
-const videoElement = document.getElementById('input_video');
-const canvasElement = document.getElementById('output_canvas');
-const ctx = canvasElement.getContext('2d');
-const gestureInfo = document.getElementById('gesture-info');
-
-// Three.js for 3D Blocks (Same as Video)
+/** 1. THREE.JS SCENE SETUP **/
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true, alpha: true });
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
 
-const grid = new THREE.GridHelper(100, 40, 0x00ffff, 0x002222);
-grid.rotation.x = Math.PI / 2;
-scene.add(grid);
+// Lighting
+scene.add(new THREE.AmbientLight(0x404040));
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(1, 1, 1).normalize();
+scene.add(light);
 
-camera.position.z = 30;
+// Ghost Preview Block (Jo ungliyon ke beech dikhta hai)
+const ghostGeo = new THREE.BoxGeometry(2, 2, 2);
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.5 });
+const ghostBlock = new THREE.Mesh(ghostGeo, ghostMat);
+scene.add(ghostBlock);
 
-const blocks = [];
-const boxGeo = new THREE.BoxGeometry(4, 4, 4);
-const boxMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.7 });
+// Placed Blocks Array
+const voxels = [];
+const voxelGeo = new THREE.BoxGeometry(2, 2, 2);
+const voxelMat = new THREE.MeshPhongMaterial({ color: 0x0088ff, shininess: 100 });
 
+camera.position.z = 25;
+
+/** 2. HAND TRACKING & VOXEL LOGIC **/
+const videoElement = document.getElementById('input_video');
 let lastPinchTime = 0;
-let grabbedBlock = null;
 
-/** 2. HAND TRACKING (Video exact skeleton) **/
-const hands = new Hands({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
+function onResults(results) {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+        
+        // Finger Positions
+        const thumb = new THREE.Vector3((lm[4].x - 0.5) * -50, (lm[4].y - 0.5) * -40, (0.5 - lm[4].z) * 15);
+        const index = new THREE.Vector3((lm[8].x - 0.5) * -50, (lm[8].y - 0.5) * -40, (0.5 - lm[8].z) * 15);
+        
+        // Midpoint (Jahan block hona chahiye)
+        const midPoint = new THREE.Vector3().lerpVectors(thumb, index, 0.5);
+        
+        // Voxel Snapping: Blocks ko 2x2x2 ki grid mein fit karna
+        const snapX = Math.round(midPoint.x / 2) * 2;
+        const snapY = Math.round(midPoint.y / 2) * 2;
+        const snapZ = Math.round(midPoint.z / 2) * 2;
+        
+        ghostBlock.position.set(snapX, snapY, snapZ);
+        ghostBlock.visible = true;
 
-hands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.7
-});
-
-hands.onResults((results) => {
-    // Canvas clear
-    ctx.save();
-    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-    if (results.multiHandLandmarks) {
-        results.multiHandLandmarks.forEach((landmarks, index) => {
-            // Draw Skeleton Lines (Wahi jo video mein hath par aati hain)
-            drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#00ffff', lineWidth: 4});
-            drawLandmarks(ctx, landmarks, {color: '#00ffff', lineWidth: 1, radius: 3});
-
-            // 3D Mapping for Blocks
-            const palm = landmarks[9];
-            const worldX = (palm.x - 0.5) * -60;
-            const worldY = (palm.y - 0.5) * -45;
-            const worldZ = (0.5 - palm.z) * 20;
-
-            // PINCH DETECTION (Thumb + Index)
-            const thumb = landmarks[4];
-            const indexF = landmarks[8];
-            const dist = Math.sqrt(Math.pow(thumb.x-indexF.x,2) + Math.pow(thumb.y-indexF.y,2));
-
-            if (dist < 0.05 && (Date.now() - lastPinchTime > 1500)) {
-                spawnBlock(worldX, worldY);
-                lastPinchTime = Date.now();
-                gestureInfo.innerText = "OBJECT CREATED";
-            }
-
-            // GRAB DETECTION (Fist)
-            const isGrab = landmarks[8].y > landmarks[6].y && landmarks[12].y > landmarks[10].y;
-            if (isGrab) {
-                if (!grabbedBlock && blocks.length > 0) {
-                    blocks.forEach(b => {
-                        if (b.position.distanceTo(new THREE.Vector3(worldX, worldY, worldZ)) < 10) grabbedBlock = b;
-                    });
-                }
-                if (grabbedBlock) {
-                    grabbedBlock.position.lerp(new THREE.Vector3(worldX, worldY, worldZ), 0.3);
-                    grabbedBlock.rotation.y += 0.1;
-                    gestureInfo.innerText = "MANIPULATING OBJECT";
-                }
-            } else {
-                grabbedBlock = null;
-            }
-        });
+        // PINCH DETECT (Block Place Karna)
+        const dist = thumb.distanceTo(index);
+        if (dist < 2.5 && (Date.now() - lastPinchTime > 1000)) {
+            placeVoxel(snapX, snapY, snapZ);
+            lastPinchTime = Date.now();
+        }
+    } else {
+        ghostBlock.visible = false;
     }
-    ctx.restore();
-    renderer.render(scene, camera);
-});
-
-function spawnBlock(x, y) {
-    const mesh = new THREE.Mesh(boxGeo, boxMat.clone());
-    mesh.position.set(x, y, 0);
-    scene.add(mesh);
-    blocks.push(mesh);
 }
 
-/** 3. CAMERA START **/
-const cameraUtils = new Camera(videoElement, {
-    onFrame: async () => {
-        canvasElement.width = window.innerWidth;
-        canvasElement.height = window.innerHeight;
-        await hands.send({image: videoElement});
-    },
-    width: 1280,
-    height: 720
-});
-cameraUtils.start();
+function placeVoxel(x, y, z) {
+    // Check if block already exists at this spot
+    const exists = voxels.some(v => v.position.x === x && v.position.y === y && v.position.z === z);
+    if (!exists) {
+        const v = new THREE.Mesh(voxelGeo, voxelMat.clone());
+        v.position.set(x, y, z);
+        // Edges highlight (Jarvis feel)
+        const edges = new THREE.EdgesGeometry(voxelGeo);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
+        v.add(line);
+        
+        scene.add(v);
+        voxels.push(v);
+    }
+}
+
+const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+hands.onResults(onResults);
+
+new Camera(videoElement, {
+    onFrame: async () => { await hands.send({image: videoElement}); },
+    width: 640, height: 480
+}).start();
+
+/** 3. ANIMATION **/
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
+animate();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>
