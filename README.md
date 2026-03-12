@@ -2,29 +2,27 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Jarvis Pro Controller - Full Functions</title>
+    <title>Jarvis High-Speed 3D Editor</title>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; background: #000; overflow: hidden; color: #0ff; font-family: 'Courier New', monospace; }
         #video-wrap {
-            position: absolute; bottom: 20px; right: 20px;
-            width: 220px; height: 165px; border: 1px solid #0ff;
-            border-radius: 12px; overflow: hidden; transform: scaleX(-1);
-            z-index: 100; box-shadow: 0 0 15px rgba(0,255,255,0.5);
+            position: absolute; bottom: 20px; left: 20px;
+            width: 180px; height: 135px; border: 1px solid #0ff;
+            border-radius: 10px; overflow: hidden; transform: scaleX(-1);
+            z-index: 100; opacity: 0.4;
         }
-        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; }
+        video { width: 100%; height: 100%; object-fit: cover; }
         #hud {
             position: absolute; top: 20px; left: 20px; pointer-events: none;
             text-shadow: 0 0 10px #0ff;
         }
-        .data-stream { font-size: 12px; color: #0f0; }
     </style>
 </head>
 <body>
 
 <div id="hud">
-    <h1 style="margin:0;">JARVIS GESTURE v3.0</h1>
-    <div class="data-stream" id="stats">STATUS: CONNECTING...</div>
-    <div id="gesture-hint" style="color:#f0f; margin-top:10px;">ACTION: PINCH TO CREATE | GRAB TO SCALE</div>
+    <h1 style="margin:0;">JARVIS EDITOR v4.0</h1>
+    <p id="info">GESTURE: PINCH=CREATE | GRAB=CONTROL | FLICK=THROW</p>
 </div>
 
 <div id="video-wrap">
@@ -36,93 +34,84 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/** 1. THREE.JS ENGINE SETUP **/
+/** 1. THREE.JS PHYSICS SETUP **/
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Environment
-const grid = new THREE.GridHelper(100, 40, 0x004444, 0x001111);
-grid.rotation.x = Math.PI / 2;
-scene.add(grid);
+const light = new THREE.PointLight(0x00ffff, 2, 100);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0x111111));
 
-const handGroup = new THREE.Group();
-scene.add(handGroup);
-
-camera.position.z = 25;
-
-// Block Management
 const blocks = [];
 const boxGeo = new THREE.BoxGeometry(3, 3, 3);
-const boxMat = new THREE.MeshStandardMaterial({ 
-    color: 0x00ffff, wireframe: true, emissive: 0x00ffff, emissiveIntensity: 0.5 
-});
-const light = new THREE.PointLight(0x00ffff, 1, 100);
-scene.add(light);
+camera.position.z = 35;
 
-/** 2. HAND TRACKING & VIDEO LOGIC **/
+/** 2. HAND TRACKING & MOVEMENT ENGINE **/
 const videoElement = document.getElementById('input_video');
-const statsEl = document.getElementById('stats');
-let lastPinchTime = 0;
+let grabbedBlock = null;
+let lastPinch = 0;
+let handVelocity = new THREE.Vector3();
+let lastHandPos = new THREE.Vector3();
 
 function onResults(results) {
-    handGroup.clear();
-    let handsCount = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
-    statsEl.innerText = `STATUS: ONLINE | HANDS: ${handsCount}`;
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+        
+        // Accurate 3D Mapping
+        const currentPos = new THREE.Vector3((lm[9].x - 0.5) * -60, (lm[9].y - 0.5) * -45, (0.5 - lm[9].z) * 20);
+        
+        // Calculate Speed/Velocity for "Throwing"
+        handVelocity.subVectors(currentPos, lastHandPos);
+        lastHandPos.copy(currentPos);
 
-    if (results.multiHandLandmarks) {
-        results.multiHandLandmarks.forEach((landmarks, hIndex) => {
-            const pts = landmarks.map(l => new THREE.Vector3((l.x - 0.5) * -60, (l.y - 0.5) * -45, (0.5 - l.z) * 20));
+        const thumb = new THREE.Vector3((lm[4].x - 0.5) * -60, (lm[4].y - 0.5) * -45, (0.5 - lm[4].z) * 20);
+        const index = new THREE.Vector3((lm[8].x - 0.5) * -60, (lm[8].y - 0.5) * -45, (0.5 - lm[8].z) * 20);
+        
+        // PINCH TO CREATE (Index + Thumb)
+        const d = thumb.distanceTo(index);
+        if (d < 3.5 && Date.now() - lastPinch > 800) {
+            spawnBlock(index);
+            lastPinch = Date.now();
+        }
 
-            // Draw Skeleton
-            const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-            connections.forEach(([i, j]) => {
-                const geo = new THREE.BufferGeometry().setFromPoints([pts[i], pts[j]]);
-                const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0x00ffff, opacity: 0.5, transparent: true}));
-                handGroup.add(line);
-            });
-
-            // GESTURES
-            const thumb = pts[4], index = pts[8], middle = pts[12], palm = pts[9];
-            const pinchDist = thumb.distanceTo(index);
-            const isGrab = middle.y < pts[9].y && index.y < pts[5].y;
-
-            // 1. PINCH TO CREATE
-            if (pinchDist < 3.5 && (Date.now() - lastPinchTime > 2000)) {
-                spawnBlock(index);
-                lastPinchTime = Date.now();
+        // GRAB LOGIC (Check if palm is closed)
+        const isGrab = lm[8].y > lm[6].y && lm[12].y > lm[10].y;
+        
+        if (isGrab) {
+            if (!grabbedBlock && blocks.length > 0) {
+                // Find closest block
+                blocks.forEach(b => { if(b.position.distanceTo(currentPos) < 10) grabbedBlock = b; });
             }
-
-            // 2. GRAB TO MANIPULATE
-            if (isGrab && blocks.length > 0) {
-                let activeBlock = blocks[blocks.length - 1];
-                activeBlock.position.lerp(palm, 0.2); // Follow hand
-                
-                // Rotation based on hand tilt
-                activeBlock.rotation.y += 0.05; 
-                activeBlock.material.color.set(0xff00ff); // Highlight
-                
-                // Dynamic Scaling (Distance from camera)
-                let scaleVal = 1 + (pts[0].z * -0.1); 
-                activeBlock.scale.set(scaleVal, scaleVal, scaleVal);
-            } else if (blocks.length > 0) {
-                blocks[blocks.length - 1].material.color.set(0x00ffff);
+            if (grabbedBlock) {
+                grabbedBlock.position.lerp(currentPos, 0.4); // Instant follow
+                grabbedBlock.velocity.set(0,0,0); // Stop physics while holding
+                grabbedBlock.material.opacity = 1;
             }
-        });
+        } else {
+            if (grabbedBlock) {
+                // RELEASE & THROW: Block gets the hand's speed
+                grabbedBlock.velocity.copy(handVelocity).multiplyScalar(1.5);
+                grabbedBlock.material.opacity = 0.6;
+                grabbedBlock = null;
+            }
+        }
     }
 }
 
 function spawnBlock(pos) {
-    const b = new THREE.Mesh(boxGeo, boxMat.clone());
+    const mat = new THREE.MeshPhongMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.6 });
+    const b = new THREE.Mesh(boxGeo, mat);
     b.position.copy(pos);
+    b.velocity = new THREE.Vector3(0,0,0); // Custom property for physics
     scene.add(b);
     blocks.push(b);
 }
 
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75 });
 hands.onResults(onResults);
 
 new Camera(videoElement, {
@@ -130,25 +119,29 @@ new Camera(videoElement, {
     width: 640, height: 480
 }).start();
 
-/** 3. ANIMATION **/
+/** 3. PHYSICS ANIMATION LOOP **/
 function animate() {
     requestAnimationFrame(animate);
     
-    // Idle rotation for all blocks
     blocks.forEach(b => {
-        b.rotation.x += 0.005;
-        b.rotation.z += 0.005;
+        if (b !== grabbedBlock) {
+            // Constant Floating Rotation
+            b.rotation.x += 0.01;
+            b.rotation.y += 0.01;
+            
+            // Physics: Apply Velocity (Throwing effect)
+            b.position.add(b.velocity);
+            b.velocity.multiplyScalar(0.98); // Air friction (slows down)
+            
+            // Boundary: Screen se bahar na jaye
+            if (Math.abs(b.position.x) > 40) b.velocity.x *= -1;
+            if (Math.abs(b.position.y) > 30) b.velocity.y *= -1;
+        }
     });
 
     renderer.render(scene, camera);
 }
 animate();
-
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
 </script>
 </body>
 </html>
